@@ -8,7 +8,7 @@
 #################################################################
 yum -y update
 yum install -y jq
-
+echo "1"
 source ./orchestrator.sh -i
 source ./config.sh
 
@@ -29,7 +29,7 @@ getValue() {
 
 # MongoDBVersion set inside config.sh
 version=${MongoDBVersion}
-
+echo "2"
 if [ -z "$version" ] ; then
   version="3.0"
 fi
@@ -40,7 +40,7 @@ name=MongoDB Repository
 baseurl=http://repo.mongodb.org/yum/amazon/2013.03/mongodb-org/3.0/x86_64/
 gpgcheck=0
 enabled=1" > /etc/yum.repos.d/mongodb-org-${version}.repo
-
+echo "3"
 
 else
     echo "[mongodb-org-${version}]
@@ -48,7 +48,7 @@ name=MongoDB 2.6 Repository
 baseurl=http://downloads-distro.mongodb.org/repo/redhat/os/x86_64/
 gpgcheck=0
 enabled=1" > /etc/yum.repos.d/mongodb-org-${version}.repo
-
+echo "4"
 fi
 
 # To be safe, wait a bit for flush
@@ -61,7 +61,7 @@ yum install -y munin-node
 yum install -y libcgroup
 yum -y install mongo-10gen-server mongodb-org-shell
 yum -y install sysstat
-
+echo "5"
 #################################################################
 #  Figure out what kind of node we are and set some values
 #################################################################
@@ -72,7 +72,7 @@ NODES=`getValue ClusterReplicaSetCount`
 MICROSHARDS=`getValue ShardsPerNode`
 CONFIGINDEX=`getValue ConfigServerIndex`
 SHARDCOUNT=`getValue ClusterShardCount`
-
+echo "6"
 
 #################################################################
 #  When there is no sharding, it's a replica set
@@ -95,7 +95,7 @@ fi
 #  Do NOT use timestamps here!!
 # This has to be unique across multiple runs!
 UNIQUE_NAME=MONGODB_${TABLE_NAMETAG}_${VPC}
-
+echo "7"
 
 #################################################################
 #  Wait for all the nodes to synchronize so we have all IP addrs
@@ -106,34 +106,45 @@ if [ "${NODE_TYPE}" == "Primary" ]; then
     ./orchestrator.sh -w "WORKING=${NODES}" -n "${SHARD}_${UNIQUE_NAME}"
     IPADDRS=$(./orchestrator.sh -g -n "${SHARD}_${UNIQUE_NAME}")
     read -a IPADDRS <<< $IPADDRS
+    echo "8"
 elif [ "${CONFIGINDEX}" == "0" ]; then
     ./orchestrator.sh -c -n "CONFIG_${UNIQUE_NAME}"
     ./orchestrator.sh -s "WORKING" -n "CONFIG_${UNIQUE_NAME}"
     NODE_TYPE="Config"
+    echo "9"
 elif [ "${CONFIGINDEX}" == "1" ] || [ "${CONFIGINDEX}" == "2" ]; then
     ./orchestrator.sh -b -n "CONFIG_${UNIQUE_NAME}"
     ./orchestrator.sh -w "WORKING=1" -n "CONFIG_${UNIQUE_NAME}"
     ./orchestrator.sh -s "WORKING" -n "CONFIG_${UNIQUE_NAME}"
     NODE_TYPE="Config"
+    echo "10"
 else
     ./orchestrator.sh -b -n "${SHARD}_${UNIQUE_NAME}"
     ./orchestrator.sh -w "WORKING=1" -n "${SHARD}_${UNIQUE_NAME}"
     ./orchestrator.sh -s "WORKING" -n "${SHARD}_${UNIQUE_NAME}"
     NODE_TYPE="Secondary"
     ./orchestrator.sh -w "WORKING=${NODES}" -n "${SHARD}_${UNIQUE_NAME}"
+    echo "11"
 fi
 
 #################################################################
 # Make filesystems, set ulimits and block read ahead on ALL nodes
 #################################################################
+echo "12"
+df
 mkfs -t ext4 /dev/xvdf
 echo "/dev/xvdf /data ext4 defaults,auto,noatime,noexec 0 0" | tee -a /etc/fstab
+echo "13"
 mkdir -p /data
 mount /data
+df
+echo "14"
 chown -R mongod:mongod /data
 blockdev --setra 32 /dev/xvdf
+echo "15"
 rm -rf /etc/udev/rules.d/85-ebs.rules
 touch /etc/udev/rules.d/85-ebs.rules
+echo "16"
 echo 'ACTION=="add", KERNEL=="'$1'", ATTR{bdi/read_ahead_kb}="16"' | tee -a /etc/udev/rules.d/85-ebs.rules
 echo "* soft nofile 64000
 * hard nofile 64000
@@ -149,7 +160,7 @@ echo "* soft nofile 64000
 #################################################################
 mkdir /var/run/mongod
 chown mongod:mongod /var/run/mongod
-
+echo "17"
 echo "net:" > mongod.conf
 echo "  port:" >> mongod.conf
 echo "" >> mongod.conf
@@ -168,6 +179,7 @@ echo "  fork: true" >> mongod.conf
 echo "  pidFilePath: /var/run/mongod/mongod.pid" >> mongod.conf
     
 if [ "${NODE_TYPE}" != "Config" ]; then
+    echo "18"
     #################################################################
     #  Enable munin plugins for iostat and iostat_ios
     #################################################################
@@ -213,6 +225,7 @@ if [ "${NODE_TYPE}" != "Config" ]; then
     #  Handle case when core sharding count is 0 - Karthik
 
     if [ "${MICROSHARDS}" != "0" ]; then
+      echo "18"
       c=0
       while [ $c -lt $MICROSHARDS ]
       do
@@ -226,13 +239,15 @@ if [ "${NODE_TYPE}" != "Config" ]; then
     else
       mkdir -p /data/
       mkdir -p /journal/
-
+      echo "19"
       # Add links for journal to data directory
       ln -s /journal/ /data/journal
     fi
 
     mkdir -p /log
     mount /log
+    echo "20"
+    df
 
     #################################################################
     # Change permissions to the directories
@@ -249,6 +264,7 @@ if [ "${NODE_TYPE}" != "Config" ]; then
 
     #  Handle case when core sharding count is 0 - Karthik
     if [ "${MICROSHARDS}" != "0" ]; then
+      echo "21"
       echo "" > /etc/cgconfig.conf
       while [ $c -lt $MICROSHARDS ]
       do
@@ -297,6 +313,7 @@ if [ "${NODE_TYPE}" != "Config" ]; then
           (( c++ ))
       done
     else #Karthik
+     echo "22"
      cp mongod.conf /etc/mongod.conf
      sed -i "s/.*port:/  port: ${port}/g" /etc/mongod.conf
      echo "replication:" >> /etc/mongod.conf
@@ -358,7 +375,7 @@ if [ "${NODE_TYPE}" != "Config" ]; then
     #  Primaries initiate replica sets
     #################################################################
     if [[ "$NODE_TYPE" == "Primary" ]]; then
-
+        echo "23"
         #################################################################
         # Wait unitil all the hosts for the replica set are responding
         #################################################################
@@ -371,7 +388,7 @@ if [ "${NODE_TYPE}" != "Config" ]; then
             while [ true ]; do
 
             echo "mongo --host ${addr} --port ${port}"
-
+            echo "24"
 mongo --host ${addr} --port ${port} << EOF
 use admin
 EOF
@@ -525,6 +542,7 @@ EOF
     fi
 
 else
+    echo "26"
     #################################################################
     # Modify the mongod.conf file and make this a config server
     #################################################################
